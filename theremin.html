@@ -14,7 +14,7 @@
     <h2>Proコンを接続して操作してください</h2>
     <script>
         let oscs = [];
-        let filter, reverb, ampEnv;
+        let filter, reverb;
         let targetFreqs = [], currentFreqs = [];
         let targetVolume = 0.5, currentVolume = 0.5;
         let isStarted = false;
@@ -30,10 +30,8 @@
 
             filter = new p5.Filter('lowpass');
             reverb = new p5.Reverb();
-            ampEnv = new p5.Envelope();
-            ampEnv.setADSR(0.05, 0.2, 0.5, 0.5);
 
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < 3; i++) {
                 let osc = new p5.Oscillator('sine');
                 osc.disconnect();
                 osc.connect(filter);
@@ -43,7 +41,7 @@
                 currentFreqs.push(261.63);
             }
 
-            setInterval(updateGamepad, 50); // ゲームパッドの入力を50msごとにチェック
+            setInterval(updateGamepad, 50); // 50msごとにゲームパッドの入力をチェック
         }
 
         function startAudio() {
@@ -52,7 +50,7 @@
                 if (!isStarted) {
                     for (let osc of oscs) {
                         osc.start();
-                        ampEnv.play(osc, 0, 0.5);
+                        osc.amp(0.5, 0.1); // 最初の音量を0.5にセット（音がすぐ消えないように）
                     }
                     isStarted = true;
                 }
@@ -74,38 +72,36 @@
             if (!gp) return;
 
             // 🎮 左スティック上下：ピッチ変更
-            let pitchControl = map(gp.axes[1], -1, 1, 0, 2);
-            let chordIndex = floor(map(pitchControl, 0, 2, 0, majorChords.length));
-            chordIndex = constrain(chordIndex, 0, majorChords.length - 1);
-            let selectedChords = isMinor ? minorChords : majorChords;
-            let chord = selectedChords[chordIndex];
+            let pitchControl = gp.axes[1]; 
+            if (!isNaN(pitchControl)) {
+                let chordIndex = floor(map(pitchControl, -1, 1, 0, majorChords.length));
+                chordIndex = constrain(chordIndex, 0, majorChords.length - 1);
+                let selectedChords = isMinor ? minorChords : majorChords;
+                let chord = selectedChords[chordIndex];
 
-            for (let i = 0; i < 3; i++) {
-                targetFreqs[i] = chord[i] * (i < 2 ? 1 : 2);
+                for (let i = 0; i < 3; i++) {
+                    targetFreqs[i] = chord[i];
+                }
             }
 
             // 🎮 右スティック上下：音量変更
-            targetVolume = constrain(map(gp.axes[3], -1, 1, 0, 1), 0, 1);
-
-            // 🎮 左スティック左右：メジャー・マイナー切り替え
-            if (gp.buttons[2].pressed) { // Xボタン
-                isMinor = true;
-            } else if (gp.buttons[3].pressed) { // Yボタン
-                isMinor = false;
+            let volumeControl = gp.axes[3];
+            if (!isNaN(volumeControl)) {
+                targetVolume = constrain(map(volumeControl, -1, 1, 0, 1), 0.1, 1);
             }
 
-            // 🎮 右スティック左右：フィルター効果
-            let filterAdjust = map(gp.axes[2], -1, 1, 100, 3000);
-            filter.freq(filterAdjust);
+            // 🎮 Xボタンでマイナーコード、Yボタンでメジャーコード
+            if (gp.buttons[2].pressed) { isMinor = true; }
+            if (gp.buttons[3].pressed) { isMinor = false; }
 
-            // 🎮 ZL：リバーブON/OFF
+            // 🎮 ZLでリバーブON/OFF
             if (gp.buttons[6].pressed) {
                 reverb.process(filter, 5, 2);
             } else {
                 reverb.process(filter, 0, 0);
             }
 
-            // 🎮 ZR：ビブラートON/OFF
+            // 🎮 ZRでビブラートON/OFF
             if (gp.buttons[7].pressed) {
                 for (let i = 0; i < oscs.length; i++) {
                     oscs[i].freq(targetFreqs[i] + sin(frameCount * 0.1) * 5);
@@ -124,6 +120,13 @@
 
             if (gamepadIndex !== null) {
                 text(`Gamepad Connected: ${navigator.getGamepads()[gamepadIndex].id}`, width / 2, height - 40);
+            }
+
+            // 🎵 音の更新
+            for (let i = 0; i < oscs.length; i++) {
+                currentFreqs[i] = lerp(currentFreqs[i], targetFreqs[i], 0.1);
+                oscs[i].freq(currentFreqs[i]);
+                oscs[i].amp(targetVolume, 0.1); // 音量が0にならないようスムーズに変化
             }
         }
 
