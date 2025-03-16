@@ -20,9 +20,10 @@
         let isStarted = false;
         let isMinor = false;
         let gamepadIndex = null;
+        let addedIntervals = []; // 追加する音程のリスト（長3度・短3度を交互に）
 
-        const majorChords = [[261.63, 329.63, 392.00], [293.66, 349.23, 440.00], [329.63, 392.00, 493.88]];
-        const minorChords = [[261.63, 311.13, 392.00], [293.66, 349.23, 415.30], [329.63, 392.00, 466.16]];
+        const scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]; // Cメジャースケール（1オクターブ）
+        const intervals = [4, 3]; // 長3度（4半音）, 短3度（3半音）
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
@@ -50,7 +51,7 @@
                 if (!isStarted) {
                     for (let osc of oscs) {
                         osc.start();
-                        osc.amp(0.5, 0.1); // 最初の音量を0.5にセット（音がすぐ消えないように）
+                        osc.amp(0.5, 0.1); // 最初の音量を0.5にセット
                     }
                     isStarted = true;
                 }
@@ -60,7 +61,7 @@
         function updateGamepad() {
             let gamepads = navigator.getGamepads();
             if (!gamepads) return;
-            
+
             let gp = null;
             for (let i = 0; i < gamepads.length; i++) {
                 if (gamepads[i]) {
@@ -71,16 +72,20 @@
             }
             if (!gp) return;
 
-            // 🎮 左スティック上下：ピッチ変更
-            let pitchControl = gp.axes[1]; 
+            // 🎮 左スティック上下：ピッチ変更（1オクターブ）
+            let pitchControl = gp.axes[1];
             if (!isNaN(pitchControl)) {
-                let chordIndex = floor(map(pitchControl, -1, 1, 0, majorChords.length));
-                chordIndex = constrain(chordIndex, 0, majorChords.length - 1);
-                let selectedChords = isMinor ? minorChords : majorChords;
-                let chord = selectedChords[chordIndex];
+                let scaleIndex = floor(map(pitchControl, -1, 1, 0, scale.length - 1));
+                scaleIndex = constrain(scaleIndex, 0, scale.length - 1);
 
-                for (let i = 0; i < 3; i++) {
-                    targetFreqs[i] = chord[i];
+                let rootNote = scale[scaleIndex];
+                targetFreqs = [rootNote];
+
+                // 追加された音を反映
+                let currentPitch = rootNote;
+                for (let i = 0; i < addedIntervals.length; i++) {
+                    currentPitch *= pow(2, addedIntervals[i] / 12); // 半音単位で追加
+                    targetFreqs.push(currentPitch);
                 }
             }
 
@@ -107,6 +112,21 @@
                     oscs[i].freq(targetFreqs[i] + sin(frameCount * 0.1) * 5);
                 }
             }
+
+            // 🎮 十字ボタン上：長3度・短3度を交互に追加
+            if (gp.buttons[12].pressed) {
+                if (addedIntervals.length < 4) { // 最大4音まで追加
+                    let interval = intervals[addedIntervals.length % 2]; // 交互に長3度・短3度
+                    addedIntervals.push(interval);
+                }
+            }
+
+            // 🎮 十字ボタン下：最後に追加した音を削除
+            if (gp.buttons[13].pressed) {
+                if (addedIntervals.length > 0) {
+                    addedIntervals.pop();
+                }
+            }
         }
 
         function draw() {
@@ -116,6 +136,7 @@
             text(`Pitch: ${Math.round(targetFreqs[0])} Hz`, width / 2, height / 4);
             text(`Volume: ${targetVolume.toFixed(2)}`, width / 2, height / 3);
             text(isMinor ? "コード: マイナー" : "コード: メジャー", width / 2, height / 2);
+            text(`追加された音の数: ${addedIntervals.length}`, width / 2, height * 0.6);
             text(`Press A to Start Audio`, width / 2, height * 0.8);
 
             if (gamepadIndex !== null) {
@@ -124,9 +145,13 @@
 
             // 🎵 音の更新
             for (let i = 0; i < oscs.length; i++) {
-                currentFreqs[i] = lerp(currentFreqs[i], targetFreqs[i], 0.1);
-                oscs[i].freq(currentFreqs[i]);
-                oscs[i].amp(targetVolume, 0.1); // 音量が0にならないようスムーズに変化
+                if (i < targetFreqs.length) {
+                    currentFreqs[i] = lerp(currentFreqs[i], targetFreqs[i], 0.1);
+                    oscs[i].freq(currentFreqs[i]);
+                    oscs[i].amp(targetVolume, 0.1);
+                } else {
+                    oscs[i].amp(0, 0.1);
+                }
             }
         }
 
