@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Controller Theremin</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: black; color: white; text-align: center; font-size: 20px; }
+    </style>
+</head>
+<body>
+    <h2>Proコンを接続して操作してください</h2>
+    <script>
+        let oscs = [];
+        let filter, reverb, ampEnv;
+        let targetFreqs = [], currentFreqs = [];
+        let targetVolume = 0.5, currentVolume = 0.5;
+        let isStarted = false;
+        let isMinor = false;
+        let gamepadIndex = null;
+
+        const majorChords = [[261.63, 329.63, 392.00], [293.66, 349.23, 440.00], [329.63, 392.00, 493.88]];
+        const minorChords = [[261.63, 311.13, 392.00], [293.66, 349.23, 415.30], [329.63, 392.00, 466.16]];
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            textAlign(CENTER, CENTER);
+
+            filter = new p5.Filter('lowpass');
+            reverb = new p5.Reverb();
+            ampEnv = new p5.Envelope();
+            ampEnv.setADSR(0.05, 0.2, 0.5, 0.5);
+
+            for (let i = 0; i < 6; i++) {
+                let osc = new p5.Oscillator('sine');
+                osc.disconnect();
+                osc.connect(filter);
+                reverb.process(osc, 3, 2);
+                oscs.push(osc);
+                targetFreqs.push(261.63);
+                currentFreqs.push(261.63);
+            }
+
+            setInterval(updateGamepad, 50); // ゲームパッドの入力を50msごとにチェック
+        }
+
+        function startAudio() {
+            console.log("Audio Started!");
+            userStartAudio().then(() => {
+                if (!isStarted) {
+                    for (let osc of oscs) {
+                        osc.start();
+                        ampEnv.play(osc, 0, 0.5);
+                    }
+                    isStarted = true;
+                }
+            });
+        }
+
+        function updateGamepad() {
+            let gamepads = navigator.getGamepads();
+            if (!gamepads) return;
+            
+            let gp = null;
+            for (let i = 0; i < gamepads.length; i++) {
+                if (gamepads[i]) {
+                    gp = gamepads[i];
+                    gamepadIndex = i;
+                    break;
+                }
+            }
+            if (!gp) return;
+
+            // 🎮 左スティック上下：ピッチ変更
+            let pitchControl = map(gp.axes[1], -1, 1, 0, 2);
+            let chordIndex = floor(map(pitchControl, 0, 2, 0, majorChords.length));
+            chordIndex = constrain(chordIndex, 0, majorChords.length - 1);
+            let selectedChords = isMinor ? minorChords : majorChords;
+            let chord = selectedChords[chordIndex];
+
+            for (let i = 0; i < 3; i++) {
+                targetFreqs[i] = chord[i] * (i < 2 ? 1 : 2);
+            }
+
+            // 🎮 右スティック上下：音量変更
+            targetVolume = constrain(map(gp.axes[3], -1, 1, 0, 1), 0, 1);
+
+            // 🎮 左スティック左右：メジャー・マイナー切り替え
+            if (gp.buttons[2].pressed) { // Xボタン
+                isMinor = true;
+            } else if (gp.buttons[3].pressed) { // Yボタン
+                isMinor = false;
+            }
+
+            // 🎮 右スティック左右：フィルター効果
+            let filterAdjust = map(gp.axes[2], -1, 1, 100, 3000);
+            filter.freq(filterAdjust);
+
+            // 🎮 ZL：リバーブON/OFF
+            if (gp.buttons[6].pressed) {
+                reverb.process(filter, 5, 2);
+            } else {
+                reverb.process(filter, 0, 0);
+            }
+
+            // 🎮 ZR：ビブラートON/OFF
+            if (gp.buttons[7].pressed) {
+                for (let i = 0; i < oscs.length; i++) {
+                    oscs[i].freq(targetFreqs[i] + sin(frameCount * 0.1) * 5);
+                }
+            }
+        }
+
+        function draw() {
+            background(0);
+            fill(255);
+            textSize(24);
+            text(`Pitch: ${Math.round(targetFreqs[0])} Hz`, width / 2, height / 4);
+            text(`Volume: ${targetVolume.toFixed(2)}`, width / 2, height / 3);
+            text(isMinor ? "コード: マイナー" : "コード: メジャー", width / 2, height / 2);
+            text(`Press A to Start Audio`, width / 2, height * 0.8);
+
+            if (gamepadIndex !== null) {
+                text(`Gamepad Connected: ${navigator.getGamepads()[gamepadIndex].id}`, width / 2, height - 40);
+            }
+        }
+
+        function keyPressed() {
+            if (key === 'A' || key === 'a') {
+                startAudio();
+            }
+        }
+    </script>
+</body>
+</html>
